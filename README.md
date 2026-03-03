@@ -28,7 +28,7 @@ The CSV file included in this repository was created using the PDF file provided
 
 ## Disclaimer
 
-* This script has not been thoroughly tested. Its ability to correctly identify every publishe, particularly those with Chinese characters, cannot be guaranteed.
+* This script has not been thoroughly tested. Its ability to correctly identify every publisher, particularly those with Chinese characters, cannot be guaranteed.
 
 * The script relies heavily on reflection to access internal Unity members. Since Unity frequently changes its internal APIs, compatibility is not guaranteed. It has been tested with Unity 6.3.10 and will likely fail in earlier versions and potentially in future versions.
 
@@ -36,4 +36,4 @@ The CSV file included in this repository was created using the PDF file provided
 
 * No real assets were available for testing, so validation was performed using dummy assets.
 
-* Using package IDs instead of publisher name matching would be more reliable and simpler to implement, however the package IDs for the removed assets are not inclded in the PDF file provided by Unity.
+* Using package IDs instead of publisher name matching would be more reliable and simpler to implement, however the package IDs for the removed assets are not included in the PDF file provided by Unity.
