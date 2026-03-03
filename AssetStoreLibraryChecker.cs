@@ -11,7 +11,7 @@ public class AssetStoreLibraryChecker : EditorWindow
    private Vector2 _scrollPos;
    private readonly List<AssetEntry> _assets = new();
    private bool _isLoading;
-   private bool _assetsRetrieved;
+   private bool _checkRan;
    private string _statusMessage = "Click 'Fetch Assets' to load your library.";
 
    private int _assetStartIndex;
@@ -24,8 +24,12 @@ public class AssetStoreLibraryChecker : EditorWindow
    private EventInfo _productListFetchedEvent;
    private Delegate _eventDelegate;
    private readonly List<string> _pendingProductIds = new();
-   
+
    private readonly List<AssetEntry> _allEntries = new();
+
+   private enum SortColumn { Name, Publisher, Flagged }
+   private SortColumn _sortColumn = SortColumn.Name;
+   private bool _sortAscending = true;
 
    [Serializable]
    private class AssetEntry
@@ -33,6 +37,7 @@ public class AssetStoreLibraryChecker : EditorWindow
       public string Name;
       public string PackageId;
       public string PublisherName;
+      public bool IsFlagged;
    }
 
    [MenuItem("Window/My Asset Store Library")]
@@ -45,27 +50,23 @@ public class AssetStoreLibraryChecker : EditorWindow
    private void OnGUI()
    {
       EditorGUILayout.Space(6);
-      EditorGUILayout.BeginHorizontal();
-      
-      if (GUILayout.Button(_isLoading ? "Loading..." : "Fetch All My Assets", GUILayout.Height(30), GUILayout.Width(400)))
+
+      if (GUILayout.Button(_isLoading ? "Loading..." : "Fetch All My Assets", GUILayout.Height(30)))
       {
          if (!_isLoading)
             FetchAllPurchasedAssets();
       }
 
-      if (_assetsRetrieved &&
-          GUILayout.Button("Check For Chinese Publishers", GUILayout.Height(30), GUILayout.Width(280)))
-         CheckAssets();
-
-      EditorGUILayout.EndHorizontal();
       EditorGUILayout.Space(4);
       EditorGUILayout.LabelField(_statusMessage, EditorStyles.helpBox, GUILayout.Height(40));
 
       if (_assets.Count > 0)
       {
          EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-         GUILayout.Label("Name", EditorStyles.toolbarButton, GUILayout.Width(400));
-         GUILayout.Label("Publisher", EditorStyles.toolbarButton, GUILayout.Width(280));
+         DrawSortableHeader("Name", SortColumn.Name, 400);
+         DrawSortableHeader("Publisher", SortColumn.Publisher, 280);
+         if (_checkRan)
+            DrawSortableHeader("Flagged", SortColumn.Flagged, 80);
          EditorGUILayout.EndHorizontal();
 
          _scrollPos = EditorGUILayout.BeginScrollView(_scrollPos);
@@ -75,6 +76,8 @@ public class AssetStoreLibraryChecker : EditorWindow
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField(asset.Name, GUILayout.Width(400));
             EditorGUILayout.LabelField(asset.PublisherName, GUILayout.Width(280));
+            if (_checkRan)
+               EditorGUILayout.LabelField(asset.IsFlagged ? "Yes" : "", GUILayout.Width(80));
             EditorGUILayout.EndHorizontal();
          }
 
@@ -84,12 +87,47 @@ public class AssetStoreLibraryChecker : EditorWindow
       }
    }
 
+   private void DrawSortableHeader(string label, SortColumn column, float width)
+   {
+      string display = _sortColumn == column
+         ? label + (_sortAscending ? " ▲" : " ▼")
+         : label;
+
+      if (GUILayout.Button(display, EditorStyles.toolbarButton, GUILayout.Width(width)))
+      {
+         if (_sortColumn == column)
+            _sortAscending = !_sortAscending;
+         else
+         {
+            _sortColumn = column;
+            _sortAscending = true;
+         }
+         ApplySort();
+      }
+   }
+
+   private void ApplySort()
+   {
+      _assets.Sort((a, b) =>
+      {
+         int cmp = _sortColumn switch
+         {
+            SortColumn.Name      => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase),
+            SortColumn.Publisher => string.Compare(a.PublisherName, b.PublisherName, StringComparison.OrdinalIgnoreCase),
+            SortColumn.Flagged   => a.IsFlagged.CompareTo(b.IsFlagged),
+            _                    => 0
+         };
+         return _sortAscending ? cmp : -cmp;
+      });
+   }
+
    private void FetchAllPurchasedAssets()
    {
       _isLoading = true;
       _assets.Clear();
       _pendingProductIds.Clear();
       _assetStartIndex = 0;
+      _checkRan = false;
       _statusMessage = "Fetching from Asset Store...";
       Repaint();
 
@@ -209,7 +247,7 @@ public class AssetStoreLibraryChecker : EditorWindow
          var cacheField = clientType
             .GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
             .FirstOrDefault(f => f.FieldType.Name.Contains("Cache") || f.FieldType.Name.Contains("cache"));
-         
+
          var cache = cacheField?.GetValue(_client);
 
          if (cache == null)
@@ -223,7 +261,7 @@ public class AssetStoreLibraryChecker : EditorWindow
             Repaint();
             return;
          }
-         
+
          var getProductInfoMethod = cache.GetType().GetMethod("GetProductInfo", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
 
          int remaining = _pendingProductIds.Count;
@@ -233,14 +271,13 @@ public class AssetStoreLibraryChecker : EditorWindow
             long productId = long.Parse(idStr);
 
             fetchMethod?.Invoke(_client, new object[] { productId, (Action)DoneCallback });
-            
+
             continue;
 
             void DoneCallback()
             {
                try
                {
-                  // Read the now-cached product info
                   var productInfo = getProductInfoMethod?.Invoke(cache, new object[] { productId });
                   if (productInfo != null)
                   {
@@ -249,9 +286,7 @@ public class AssetStoreLibraryChecker : EditorWindow
 
                      var entry = _assets.FirstOrDefault(a => a.PackageId == productId.ToString());
                      if (entry != null)
-                     {
                         entry.PublisherName = publisher.Trim();
-                     }
                   }
                }
                catch (Exception ex)
@@ -264,8 +299,8 @@ public class AssetStoreLibraryChecker : EditorWindow
                   if (remaining <= 0)
                   {
                      _isLoading = false;
-                     _assetsRetrieved = true;
-                     _statusMessage = $"Finished! Loaded {_assets.Count} assets from your library.";
+                     _statusMessage = $"Loaded {_assets.Count} assets. Checking publishers...";
+                     CheckAssets();
                   }
 
                   Repaint();
@@ -281,37 +316,46 @@ public class AssetStoreLibraryChecker : EditorWindow
          Repaint();
       }
    }
-   
+
    private static string GetString(Type t, object obj, string member) => (t.GetProperty(member)?.GetValue(obj) ?? t.GetField(member)?.GetValue(obj))?.ToString();
 
    private void CheckAssets()
    {
-      bool assetFound = false;
-      
       if (!TryLoadCSV(CSV_FILE_PATH))
       {
          Debug.LogError($"CSV file not found at: {CSV_FILE_PATH}");
+         _statusMessage = $"Loaded {_assets.Count} assets. CSV not found — skipping check.";
+         Repaint();
          return;
       }
 
       Debug.Log("Looking for assets to be deprecated...");
-      
+
+      foreach (var asset in _assets)
+         asset.IsFlagged = false;
+
       foreach (var asset in _assets)
       {
          foreach (var publishedAsset in _allEntries)
          {
             if (string.Equals(asset.PublisherName, publishedAsset.PublisherName, StringComparison.InvariantCultureIgnoreCase))
             {
+               asset.IsFlagged = true;
                Debug.LogWarning($"Found Asset: {asset.Name} from publisher: {asset.PublisherName}");
-               assetFound = true;
             }
          }
       }
-      
-      if(!assetFound)
-         Debug.Log("No assets found to be deprecated");
-      
+
+      int flaggedCount = _assets.Count(a => a.IsFlagged);
       Debug.Log("Finished searching assets.");
+
+      _checkRan = true;
+      _sortColumn = SortColumn.Flagged;
+      _sortAscending = false;
+      ApplySort();
+
+      _statusMessage = $"Done. {_assets.Count} assets loaded, {flaggedCount} flagged.";
+      Repaint();
    }
 
    private bool TryLoadCSV(string path)
@@ -328,7 +372,7 @@ public class AssetStoreLibraryChecker : EditorWindow
       {
          string line = lines[i].Trim();
          if (string.IsNullOrEmpty(line)) continue;
-         
+
          string[] columns = SplitCSVLine(line);
 
          if (columns.Length < 2) continue;
@@ -344,7 +388,7 @@ public class AssetStoreLibraryChecker : EditorWindow
       Debug.Log("Loaded entries from CSV.");
 
       return true;
-      
+
       string[] SplitCSVLine(string line)
       {
          var result = new List<string>();
