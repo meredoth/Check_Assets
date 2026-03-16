@@ -1,6 +1,6 @@
 # Check_Assets
 
-**Last Upadte based on the PDF published by Unity on March 10**
+**Last Upadte based on the PDF published by Unity on March 16**
 
 Use this tool to determine whether your account contains any assets published by companies identified as Chinese publishers.
 
